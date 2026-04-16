@@ -1,0 +1,110 @@
+# Lesson 4: Insecure Cloud Configuration
+
+## Part 1) Goal and Vulnerability Summary
+
+This lesson demonstrates an insecure cloud configuration in the DVSA application where an S3 bucket allows unintended file uploads. These uploaded files are automatically processed by a backend AWS Lambda function. This creates a risk where attacker-controlled data can enter the backend processing pipeline.
+
+The affected components include:
+- Amazon S3 (receipts bucket)
+- AWS Lambda (DVSA-SEND-RECEIPT-EMAIL)
+
+The security impact is that an attacker can inject arbitrary files into the system, which are then trusted and processed by backend services.
+
+---
+
+## Part 2) Why This Works / Root Cause
+
+The vulnerability exists due to:
+
+- Overly permissive S3 bucket configuration
+- Lack of strict validation of uploaded objects
+- Trust in S3 event-triggered data by backend Lambda functions
+
+The system assumes that any `.raw` file in the bucket is legitimate, without verifying its origin or structure.
+
+---
+
+## Part 3) Environment and Setup
+
+- DVSA deployed in AWS (us-east-1)
+- AWS CLI configured
+- Test file created locally
+- Identified resources:
+  - S3 bucket: `dvsa-receipts-bucket-446483465359-us-east-1`
+  - Lambda function: `DVSA-SEND-RECEIPT-EMAIL`
+  - CloudWatch logs: `/aws/lambda/DVSA-SEND-RECEIPT-EMAIL`
+
+---
+
+## Part 4) Reproduction Steps
+
+### Step 1: Create a test file
+
+```bash
+echo "lesson4-test" > test.raw
+
+Step 2: Upload file to S3 bucket
+aws s3 cp test.raw \
+s3://dvsa-receipts-bucket-446483465359-us-east-1/2026/04/15/b499ea14-f30f-4a5c-86ff-c3d8c53be680_b499ea14-f30f-4a5c-86ff-c3d8c53be680.raw
+
+Step 3: Verify upload success
+
+The upload completes successfully, indicating that the bucket accepts arbitrary file uploads.
+
+Step 4: Check Lambda execution
+Open AWS CloudWatch
+Navigate to /aws/lambda/DVSA-SEND-RECEIPT-EMAIL
+Open latest log stream
+
+A new log entry appears immediately after upload, confirming that the Lambda function was triggered.
+
+Part 5) Evidence and Proof
+Successful AWS CLI upload output
+S3 bucket contents showing uploaded file
+Event notification configuration linking S3 to Lambda
+CloudWatch logs showing new Lambda invocation after upload
+
+This proves that attacker-controlled files can be uploaded and processed by the backend.
+
+Part 6) Fix Strategy / Probable Mitigation
+
+The vulnerability can be mitigated by:
+
+Restricting S3 bucket write access
+Enforcing least-privilege access control
+Preventing unauthorized uploads
+Validating file structure and origin before processing
+Part 7) Code / Config Changes
+
+A restrictive S3 bucket policy was applied:
+
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "RestrictPutObject",
+      "Effect": "Deny",
+      "Principal": "*",
+      "Action": "s3:PutObject",
+      "Resource": "arn:aws:s3:::dvsa-receipts-bucket-446483465359-us-east-1/*"
+    }
+  ]
+}
+
+Additionally, S3 Block Public Access settings were enabled.
+
+Part 8) Verification After Fix
+
+The same upload attempt was repeated:
+
+aws s3 cp test.raw \
+s3://dvsa-receipts-bucket-446483465359-us-east-1/2026/04/15/test.raw
+
+Result:
+
+Upload failed with AccessDenied
+
+This confirms that unauthorized uploads are no longer allowed.
+
+Note:
+The strict deny policy also prevented the application from generating new receipts, indicating that the fix was too restrictive.
