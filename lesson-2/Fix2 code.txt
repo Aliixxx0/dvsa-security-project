@@ -1,0 +1,65 @@
+1) Add this code after const jose = require('node-jose');
+javascriptlet jwksCache = { keyset: null, fetchedAt: 0 };
+
+function resp(statusCode, bodyObj) {
+    return {
+        statusCode,
+        headers: { "Access-Control-Allow-Origin": "*" },
+        body: JSON.stringify(bodyObj)
+    };
+}
+
+async function getCognitoJWKS() {
+    const now = Date.now();
+    if (jwksCache.keyset && (now - jwksCache.fetchedAt < 3600000)) return jwksCache.keyset;
+    const region = process.env.AWS_REGION;
+    const userPoolId = process.env.userpoolid;
+    const url = `https://cognito-idp.${region}.amazonaws.com/${userPoolId}/.well-known/jwks.json`;
+    const res = await fetch(url);
+    jwksCache = { keyset: await res.json(), fetchedAt: now };
+    return jwksCache.keyset;
+}
+
+async function verifyCognitoJWT(jwt) {
+    const keyset = await getCognitoJWKS();
+    const keystore = await jose.JWK.asKeyStore(keyset);
+    const result = await jose.JWS.createVerify(keystore).verify(jwt);
+    const claims = JSON.parse(result.payload);
+    const now = Math.floor(Date.now() / 1000);
+    if (claims.exp < now) throw new Error("expired");
+    return claims;
+}
+
+2) Replace exports.handler = (event, context, callback) => { with:
+javascriptexports.handler = async (event, context, callback) => {
+
+3) Replace this vulnerable block:
+javascriptvar auth_header = headers.Authorization || headers.authorization;
+var token_sections = auth_header.split('.');
+var auth_data = jose.util.base64url.decode(token_sections[1]);
+var token = JSON.parse(auth_data);
+var user = token.username;
+var isAdmin = false;
+With:
+javascriptvar user, isAdmin;
+try {
+    const authHeader = headers.Authorization || headers.authorization;
+    if (!authHeader) return callback(null, resp(401, { status: "err", msg: "missing authorization" }));
+    const token = authHeader.split(' ')[1] || authHeader;
+    const claims = await verifyCognitoJWT(token);
+    user = claims['cognito:username'] || claims.username || claims.sub;
+    isAdmin = false;
+} catch (e) {
+    console.log("JWT verify failed", e);
+    return callback(null, resp(401, { status: "err", msg: "invalid token" }));
+}
+
+4) Replace the catch block at the bottom:
+javascriptcatch (e){
+    console.log(e);
+}
+With:
+javascriptcatch (e){
+    console.log(e);
+    return callback(null, resp(500, { status: "err", msg: "internal error" }));
+}
