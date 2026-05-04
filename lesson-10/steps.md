@@ -16,24 +16,6 @@ When a required field is missing, a Python exception (`KeyError`) is raised, and
 
 ---
 
-## Part 3) Environment and Setup
-
-- DVSA deployed on AWS (us-east-1)
-- API Gateway endpoint:
-  `https://snw2nobdde.execute-api.us-east-1.amazonaws.com/dvsa/order`
-- Tool used: Postman
-- Authorization: JWT token captured from browser DevTools
-- Target Lambda function: `DVSA-ORDER-UPDATE`
-
----
-
-## Part 4) Reproduction Steps
-
-1. Log in to DVSA as a normal user.
-2. Create an order (any order is sufficient).
-3. Capture the API request and JWT token using DevTools.
-4. Send the following malformed request using Postman:
-
 ```json
 {
   "action": "update",
